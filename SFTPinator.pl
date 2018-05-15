@@ -1,15 +1,18 @@
 #!/usr/bin/perl
 
-#TODO: focusForce, $widget->focus; $widget->bind('<Return>', &sub)
-BEGIN {
-	$ENV{PERL_DL_NONLAZY} = 1;
-}
-
 use warnings;
 use strict;
-#use Encode qw/encode decode/;
 use threads;
 use threads::shared;
+use Win32;
+use Win32::Process;
+#TODO: focusForce, $widget->focus; $widget->bind('<Return>', &sub)
+
+BEGIN {
+	Win32::SetChildShowWindow(0) if defined &Win32::SetChildShowWindow;
+
+}
+#use Encode qw/encode decode/;
 
 my $thr;
 my $msg:shared = undef;
@@ -30,8 +33,6 @@ use IO::Compress::Bzip2 qw(bzip2 $Bzip2Error);
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Time::localtime;
 use File::Copy::Recursive qw/rcopy dircopy fmove/;
-use Win32::Console;
-Win32::Console::Free();
 #use Net::SFTP;
 
 
@@ -162,8 +163,11 @@ $lFEntry->g_bind('<Return>', sub{ $lNEntry->g_focus() });
 $lNEntry->g_bind('<Return>', sub{ $lPEntry->g_focus() });
 #$lNEntry->bind('<Return>', $lPEntry->configure(-state => 'focus'));
 
+my $lUpPgrBar = $lw->new_ttk__progressbar(-orient => 'horizontal', -length => 300, -mode => 'indeterminate');
+$lUpPgrBar->g_grid(-column => 0, -row => 6, -sticky => 's', -columnspan => 1, -pady => 3);
+
 my $lUpButton = $lw->new_ttk__button(-text => 'Upload', -command => sub{ &uploadFile }); 
-$lUpButton->g_grid(-column => 0, -row => 6, -sticky => 'ew');
+$lUpButton->g_grid(-column => 0, -row => 7, -sticky => 'ew');
 $lPEntry->g_bind('<Return>', sub{ $lUpButton->invoke() });
 
 #Create a label saying 'Selected Files'
@@ -264,6 +268,7 @@ $lw->g_grid_rowconfigure(3, -weight => 1);
 $lw->g_grid_rowconfigure(4, -weight => 1);
 $lw->g_grid_rowconfigure(5, -weight => 1);
 $lw->g_grid_rowconfigure(6, -weight => 1);
+$lw->g_grid_rowconfigure(7, -weight => 1);
 
 $mw->g_raise();
 #Run the UI loop
@@ -390,11 +395,27 @@ sub thrEncrypt {
 	print $gpgconf "keyserver hkp://subkeys.pgp.net\n";
 	close $gpgconf;
 		
+#TODO: finish gpg batch file coding	
+#	open GPGCMD, ">gpg_cmd.bat" or $msg = "Failed to open gpg batch file for writing";
+#	print GPGCMD qq#$gpg --homedir gnupg --batch gnupg/gpg.conf\n$gpg --homedir gnupg --batch --import "$key" 1 > gnupg/gpglog.txt 2>&1\ndel /f/q "%~0"#;
+#	close GPGCMD;
+#
+#	
+#	system(qq#START /MIN cmd /c $run_bat#);
 	
+	my $gpg_res = &writeExecBat('run_gpg.bat', dirname($sftp), qq#$gpg --homedir gnupg --batch gnupg/gpg.conf\n$gpg --homedir gnupg --batch --import "$key" 1 > gnupg/gpglog.txt 2>&1\ndel /f/q "%~0"#);
+	
+	while(-f 'run_gpg.bat'){
+		sleep(1);
+	}
 
-	my $gpgRes = system($gpg, "--homedir", "gnupg", "--batch", "gnupg/gpg.conf");
+	if($gpg_res){
+		$msg = $gpg_res;
+		return;
+	}
+	#my $gpgRes = system($gpg, "--homedir", "gnupg", "--batch", "gnupg/gpg.conf");
 
-	$gpgRes = system(qq#$gpg --homedir gnupg --batch --import "$key" 1 > gnupg/gpglog.txt 2>&1#);
+	#$gpgRes = system(qq#$gpg --homedir gnupg --batch --import "$key" 1 > gnupg/gpglog.txt 2>&1#);
 
 #	if($gpgRes ne 0){
 #		$msg = "Failed to import $key.";
@@ -429,15 +450,24 @@ sub thrEncrypt {
 #	close(TMPCMD);
 
 #"--always-trust" instead of "--trust-model", "always"
-	$gpgRes = system($gpg, "--homedir", "gnupg", "--batch", "--always-trust", "-e", "-r", "info\@twopoint.com", $fileName); 
+	$gpg_res = &writeExecBat('run_gpg.bat', dirname($sftp), qq#$gpg --homedir gnupg --batch --always-trust -e -r "info\@twopoint.com" "$fileName\ndel /f/q "%~0""#); 
 #	$gpgRes = qx/$gpg --homedir gnupg --batch --always-trust -e -r info\@twopoint.com "$fileName"/;
-
-	if($gpgRes ne 0){
-	#	$msg = "Failed to encrypt '$fileName'";
-		$msg = "failed to encrypt: $gpgRes";
-		$encrypted = 2;
-		return;
+	
+	while(-f 'run_gpg.bat'){
+		sleep(1);
 	}
+
+	if($gpg_res){
+		$msg = $gpg_res;
+		return;	
+	}
+
+#	if($gpgRes ne 0){
+	#	$msg = "Failed to encrypt '$fileName'";
+#		$msg = "failed to encrypt: $gpgRes";
+#		$encrypted = 2;
+#		return;
+#	}
 
 	$encrypted = 1;
 
@@ -801,6 +831,7 @@ sub onContinue {
 }
 
 sub uploadFile {
+	$lUpPgrBar->start();
 	$lUpButton->configure(-text => 'Uploading...');
 	$lUpButton->configure(-state => 'disabled');
 	$msg = undef;
@@ -813,7 +844,9 @@ sub uploadFile {
 
 sub uploadChk {
 	$lw->g_raise();
+	$lw->g_focus();
 	if($msg){
+		$lUpPgrBar->stop();
 		Tkx::tk___messageBox(-message => $msg);
 		$lw->g_focus();
 		if($msg eq 'File upload was successful.'){
@@ -826,6 +859,19 @@ sub uploadChk {
 	else{
 		Tkx::after(500, [\&uploadChk]);
 	}
+}
+
+sub writeExecBat {
+	my ($script_name, $path, $bat_cmd) = @_;
+	
+	my $ret = 0;
+	my $run_bat = File::Spec->catfile($path, $script_name);
+	open CMDFILE, ">$run_bat" or $ret = "failed to open sftp batch script";
+	print CMDFILE qq#$bat_cmd#;
+	close CMDFILE;
+	
+	system(qq#START /MIN cmd /c $run_bat#);
+	return $ret;
 }
 
 sub thrUpload {
@@ -864,7 +910,24 @@ sub thrUpload {
 	close WFILE;
 	#close RFILE;
 	my $resFile = File::Spec->catfile(dirname($sftp), 'sftp_log.txt');
-	system(qq#$sftp "$fileName" "$user" > $resFile#);
+
+	#Write batch file that executes the sftp executable, deletes tpconfig.pm, and deletes itself at the end.
+#	my $run_bat = File::Spec->catfile(dirname($sftp), 'run_sftp.bat');
+#	open CMDFILE, ">$run_bat" or $msg = "failed to open sftp batch script";
+#	print CMDFILE qq#$sftp "$fileName" "$user" > $resFile\ndel $tpCurr\ndel /f/q "%~0"#;
+#	close CMDFILE;
+
+	my $sftp_res = &writeExecBat('run_sftp.bat', dirname($sftp), qq#$sftp "$fileName" "$user" > $resFile\ndel $tpCurr\ndel /f/q "%~0"#);
+	
+	if($sftp_res){
+		$msg = $sftp_res;
+		return;
+	}
+#	system(qq#START /MIN cmd /c $run_bat#);
+	#system(qq#START /MIN cmd /k $sftp "$fileName" "$user" ^> $resFile & del $tpCurr#);
+	#my $process;
+	#Win32::Process::Create($process, "C:\\WINDOWS\\system32\\cmd.exe", qq#/c START /MIN cmd /k $sftp "$fileName" "$user" > $resFile#, 0, CREATE_NEW_CONSOLE, '.') or die "Failed to create/run SFTP process";
+#	Win32::Process::Create($process, "C:\\WINDOWS\\system32\\cmd.exe", qq#/k START /MIN echo 'hi'#, 0, CREATE_NEW_CONSOLE, '.') or die "Failed to create/run SFTP process";
 #	open CMDFILE, ">$cmdFile" or die "failed to open cmdfile";
 #	print CMDFILE "put $fileName rkim/$fileName";
 #	close(CMDFILE);
@@ -881,8 +944,12 @@ sub thrUpload {
 #	chomp($hostkey);
 #	$res = system("$sftp", "-b", "$cmdFile", "-hostkey", "$hostkey", "-batch", "-l", "$user", "-pw", "$passwd", "sftp.twopoint.com");
 #	unlink("$cmdFile");
-	unlink($tpCurr);
-
+	#$process->Wait($process);
+	#unlink($tpCurr);
+	while(-f $tpCurr){
+		sleep(1);
+	}
+	#unlink($run_bat);
 	my $res = '';
 	
 	unless(open RFILE, "<$resFile"){
@@ -894,7 +961,7 @@ sub thrUpload {
 	
 	close(RFILE);
 
-	unlink($resFile);
+	#unlink($resFile);
 	if($res =~ /ERROR:\slogin failed/){
 		#Tkx::tk___messageBox(-message => "Login failed.");
 		$msg = "Login failed.";
@@ -958,3 +1025,4 @@ sub thrUpload {
 #		}
 #	}
 #}
+#
