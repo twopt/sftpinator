@@ -1,0 +1,61 @@
+first time setup:
+make a sftpinator directory
+make sure your CVSROOT env var is set
+cvs co sftpinator
+
+this will make an sftpinator subdir with all the code, etc.
+
+after the first time:
+go to sftpinator
+cvs up
+
+every time:
+go to where cnv is checked out (or check it)
+
+copy x:\encryption\gpg_twopt\twopt_gpg_pubkey.txt
+cvs ci twopt_gpg_pubkey.txt
+
+this keeps the key in cnv up to date
+
+go back to sftpinator
+
+copy x:\encryption\gpg_twopt\twopt_gpg_pubkey.txt
+cvs ci twopt_gpg_pubkey.txt
+mk_sftpinator
+
+now make the install package, in windows hit start
+and then type iexpress.exe and run it
+
+choose open existing self extraction directive file, and open sftpinator_install.sed
+choose create package and hit next
+on the page that says create package, hit next
+it will now make the installer
+
+eventually it will say "your package has been created". click finish.
+
+you now have an updated sftpinator_install.exe in the sftpintor dir
+
+with a browser, log into github, into the twopt org, and open the sftpinator repo
+
+click the release button
+
+on the release page, click "draft a new release"
+
+for tag put the next number (i just bumped it from 1.0.0 to 1.0.1)
+
+for title put "Sftpinator {tag}"
+where tag is the tag you entered above
+
+where it says describe this release, put the reason we're making a new release, whether
+bug fix or whatever. i put "new gpg public key"
+
+click where it says "Attach binaries by dropping them here or selecting them." and select the sftpinator_install.exe you just made. it will then upload the new installer.
+
+once it's done uploading, click "publish release".
+
+you are now done.
+
+
+
+
+
